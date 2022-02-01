@@ -7,7 +7,6 @@ const userAuth = async(req, res, next) => {
             return res.status(403).send({ status: false, message: `Missing authentication token in request` })
         }
         let splitToken = token.split(' ')
-        
 
         let decodeToken = jwt.decode(splitToken[1], 'group3-Project5-Products_management')
         if (!decodeToken) {

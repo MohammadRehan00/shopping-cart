@@ -1,141 +1,264 @@
-const cartModel = require("../models/cartModel")
-const userModel = require("../models/userModel")
-const orderModel = require("../models/OrderModel")
-const validator = require('../validation/validator');
+const validator = require("../utils/validator");
+const userModel = require("../models/userModel");
+const cartModel = require("../models/cartModel");
+const orderModel = require("../models/orderModel");
 
+//Creating order
+const orderCreation = async(req, res) => {
+    try {
+        const userId = req.params.userId;
+        const requestBody = req.body;
+        const userIdFromToken = req.userId;
 
-const createOrder = async function(req, res) {
-        try {
-            const userId = req.params.userId
-            let tokenId = req.userId
+        //validation for request body
+        if (!validator.isValidRequestBody(requestBody)) {
+            return res
+                .status(400)
+                .send({
+                    status: false,
+                    message: "Invalid request body. Please provide the the input to proceed.",
+                });
+        }
+        //Extract parameters
+        const { cartId, cancellable, status } = requestBody;
 
-            if (!(validator.isValidObjectId(userId) && validator.isValidObjectId(tokenId))) {
-                return res.status(400).send({ status: false, message: "userId or token is not valid" });;
+        //validating userId
+        if (!validator.isValidObjectId(userId)) {
+            return res
+                .status(400)
+                .send({ status: false, message: "Invalid userId in params." });
+        }
+
+        const searchUser = await userModel.findOne({ _id: userId });
+        if (!searchUser) {
+            return res.status(400).send({
+                status: false,
+                message: `user doesn't exists for ${userId}`,
+            });
+        }
+        //Authentication & authorization
+        if (searchUser._id.toString() != userIdFromToken) {
+            res.status(401).send({ status: false, message: `Unauthorized access! User's info doesn't match` });
+            return
+        }
+
+        if (!cartId) {
+            return res.status(400).send({
+                status: false,
+                message: `Cart doesn't exists for ${userId}`,
+            });
+        }
+        if (!validator.isValidObjectId(cartId)) {
+            return res.status(400).send({
+                status: false,
+                message: `Invalid cartId in request body.`,
+            });
+        }
+
+        //searching cart to match the cart by userId whose is to be ordered.
+        const searchCartDetails = await cartModel.findOne({
+            _id: cartId,
+            userId: userId,
+        });
+        if (!searchCartDetails) {
+            return res.status(400).send({
+                status: false,
+                message: `Cart doesn't belongs to ${userId}`,
+            });
+        }
+
+        //must be a boolean value.
+        if (cancellable) {
+            if (typeof cancellable != "boolean") {
+                return res.status(400).send({
+                    status: false,
+                    message: `Cancellable must be either 'true' or 'false'.`,
+                });
             }
+        }
 
-            const user = await userModel.findOne({ _id: userId })
-            if (!user) {
-                res.status(400).send({ status: false, msg: "User not found" })
+        // must be either - pending , completed or cancelled.
+        if (status) {
+            if (!validator.isValidStatus(status)) {
+                return res.status(400).send({
+                    status: false,
+                    message: `Status must be among ['pending','completed','cancelled'].`,
+                });
             }
-            if (!(userId.toString() == tokenId.toString())) {
-                return res.status(401).send({ status: false, message: `Unauthorized access! Owner info doesn't match` });
-            }
+        }
 
-            let requestBody = req.body
+        //verifying whether the cart is having any products or not.
+        if (!searchCartDetails.items.length) {
+            return res.status(202).send({
+                status: false,
+                message: `Order already placed for this cart. Please add some products in cart to make an order.`,
+            });
+        }
 
-            if (!validator.isValidRequestBody(requestBody)) {
-                return res.status(400).send({ status: false, message: "Please provide data for successful creation" });
-            }
+        //adding quantity of every products
+        const reducer = (previousValue, currentValue) =>
+            previousValue + currentValue;
 
-            let { cartId, cancellable, status } = requestBody
+        let totalQuantity = searchCartDetails.items
+            .map((x) => x.quantity)
+            .reduce(reducer);
 
-            if (!validator.isValid(cartId)) {
-                return res.status(400).send({ status: false, message: "Please provide cartId" });
-            }
+        //object destructuring for response body.
+        const orderDetails = {
+            userId: userId,
+            items: searchCartDetails.items,
+            totalPrice: searchCartDetails.totalPrice,
+            totalItems: searchCartDetails.totalItems,
+            totalQuantity: totalQuantity,
+            cancellable,
+            status,
+        };
+        const savedOrder = await orderModel.create(orderDetails);
 
-            if (!(validator.isValidObjectId(cartId))) {
-                return res.status(400).send({ status: false, message: "cartId is not valid" });;
-            }
-            if (!validator.validString(status)) {
-                if (!validator.validforStatus(status)) {
-                    return res.status(400).send({ status: false, message: "Status should be among 'pending', 'cancelled', 'completed' " });
+        //Empty the cart after the successfull order
+        await cartModel.findOneAndUpdate({ _id: cartId, userId: userId }, {
+            $set: {
+                items: [],
+                totalPrice: 0,
+                totalItems: 0,
+            },
+        });
+        return res
+            .status(200)
+            .send({ status: true, message: "Order placed.", data: savedOrder });
+    } catch (err) {
+        return res.status(500).send({ status: false, message: err.message });
+    }
+};
+
+//updating order status.
+const updateOrder = async(req, res) => {
+    try {
+        const userId = req.params.userId;
+        const requestBody = req.body;
+        const userIdFromToken = req.userId
+
+        //validating request body.
+        if (!validator.isValidRequestBody(requestBody)) {
+            return res
+                .status(400)
+                .send({
+                    status: false,
+                    message: "Invalid request body. Please provide the the input to proceed.",
+                });
+        }
+        //extract params
+        const { orderId, status } = requestBody;
+        if (!validator.isValidObjectId(userId)) {
+            return res
+                .status(400)
+                .send({ status: false, message: "Invalid userId in params." });
+        }
+        const searchUser = await userModel.findOne({ _id: userId });
+        if (!searchUser) {
+            return res.status(400).send({
+                status: false,
+                message: `user doesn't exists for ${userId}`,
+            });
+        }
+
+        //Authentication & authorization
+        if (searchUser._id.toString() != userIdFromToken) {
+            res.status(401).send({ status: false, message: `Unauthorized access! User's info doesn't match` });
+            return
+        }
+
+        if (!orderId) {
+            return res.status(400).send({
+                status: false,
+                message: `Order doesn't exists for ${orderId}`,
+            });
+        }
+
+        //verifying does the order belongs to user or not.
+        isOrderBelongsToUser = await orderModel.findOne({ userId: userId });
+        if (!isOrderBelongsToUser) {
+            return res.status(400).send({
+                status: false,
+                message: `Order doesn't belongs to ${userId}`,
+            });
+        }
+
+        if (!status) {
+            return res
+                .status(400)
+                .send({
+                    status: false,
+                    message: "Mandatory paramaters not provided. Please enter current status of the order."
+                });
+        }
+        if (!validator.isValidStatus(status)) {
+            return res
+                .status(400)
+                .send({
+                    status: false,
+                    message: "Invalid status in request body. Choose either 'pending','completed', or 'cancelled'."
+                });
+        }
+
+        //if cancellable is true then status can be updated to any of te choices.
+        if (isOrderBelongsToUser["cancellable"] == true) {
+            if ((validator.isValidStatus(status))) {
+                if (isOrderBelongsToUser['status'] == 'pending') {
+                    const updateStatus = await orderModel.findOneAndUpdate({ _id: orderId }, {
+                        $set: { status: status }
+                    }, { new: true })
+                    return res.status(200).send({ status: true, message: `Successfully updated the order details.`, data: updateStatus })
+                }
+
+                //if order is in completed status then nothing can be changed/updated.
+                if (isOrderBelongsToUser['status'] == 'completed') {
+                    return res.status(400).send({ status: false, message: `Unable to update or change the status, because it's already in completed status.` })
+                }
+
+                //if order is already in cancelled status then nothing can be changed/updated.
+                if (isOrderBelongsToUser['status'] == 'cancelled') {
+                    return res.status(400).send({ status: false, message: `Unable to update or change the status, because it's already in cancelled status.` })
                 }
             }
-
-            const cartDetails = await cartModel.findOne({ _id: cartId })
-            if (!cartDetails) {
-                return res.status(400).send({ status: false, message: `cart not present` });
+        }
+        //for cancellable : false
+        if (isOrderBelongsToUser['status'] == "completed") {
+            if (status) {
+                return res.status(400).send({ status: false, message: `Cannot update or change the status, because it's already in completed status.` })
             }
+        }
 
-            const totalItems1 = cartDetails.items.length
-            var totalQuantity1 = 0;
-            for (let i in cartDetails.items) {
-
-                totalQuantity1 += cartDetails.items[i].quantity
+        if (isOrderBelongsToUser['status'] == "cancelled") {
+            if (status) {
+                return res.status(400).send({ status: false, message: `Cannot update or change the status, because it's already in cancelled status.` })
             }
+        }
 
-            const orderDetails = {
-                userId: userId,
-                items: cartDetails.items,
-                totalPrice: cartDetails.totalPrice,
-                totalItems: totalItems1,
-                totalQuantity: totalQuantity1,
-                cancellable: cancellable,
-                status: status
+        if (isOrderBelongsToUser['status'] == "pending") {
+            if (status) {
+                if (["completed", "pending"].indexOf(status) === -1) {
+                    return res.status(400).send({
+                        status: false,
+                        message: `Unable to update status due to Non-cancellation policy.`
+                    })
+                }
 
+                // if ((status === 'pending' || status === 'completed' || status === 'cancelled')) {
+                const updatedOrderDetails = await orderModel.findOneAndUpdate({ _id: orderId }, { $set: { status: status } }, { new: true })
+
+                return res.status(200).send({ status: true, message: `Successfully updated the order details.`, data: updatedOrderDetails })
+                    // }
+                    // return res.status(400).send({ status: true, message: `Status must be either- 'pending','completed' & 'cancelled'.` })
             }
-            const order = await orderModel.create(orderDetails)
-
-            return res.status(201).send({ status: true, msg: "Order Successful created, Here are the details ", data: order })
-        } catch (err) {
-            return res.status(500).send({ status: false, message: err.message });
         }
-    }
-
-
-     //------------------update order details-----------------------------------------------------
-     
-
-const updateOrder = async function(req, res) {
-    try {
-        const userId = req.params.userId
-        let tokenId = req.userId
-        let requestBody = req.body
-        if (!(validator.isValidObjectId(userId) && validator.isValidObjectId(tokenId))) {
-            return res.status(400).send({ status: false, message: "userId or token is not valid" });;
-        }
-        const userDetail = await userModel.findOne({ _id: userId })
-        if (!userDetail) {
-            return res.status(400).send({ status: false, message: `userId  is not Valid` });
-        }
-        if (!(userId.toString() == tokenId.toString())) {
-            return res.status(401).send({ status: false, message: `Unauthorized access! ` });
-        }
-        let { orderId, status } = requestBody
-
-        if (!validator.isValidRequestBody(requestBody)) {
-            return res.status(400).send({ status: false, message: "Please provide data to update order" });
-        }
-        if (!validator.isValid(orderId)) {
-            return res.status(400).send({ status: false, message: "Please provide OrderId " });
-        }
-        if (!(validator.isValidObjectId(orderId))) {
-            return res.status(400).send({ status: false, message: "orderId is not valid" });;
-        }
-        if (!validator.isValid(status)) {
-            return res.status(400).send({ status: false, message: "Please provide status for successful Update order" });
-        }
-        if (!validator.validforStatus(status)) {
-            return res.status(400).send({ status: false, message: "Status should be among 'pending', 'cancelled', 'completed' " });
-        }
-        const orderDetail = await orderModel.findOne({ _id: orderId, isDeleted: false })
-        if (!orderDetail) {
-            return res.status(400).send({ status: false, message: "Please provide  Vaild OrderId for update Order Data " });
-        }
-
-        if (!(orderDetail.userId == userId)) {
-            return res.status(400).send({ status: false, message: "This order does not belong to the User " });
-
-        }
-        if (orderDetail.cancellable == !'true') {
-            return res.status(400).send({ status: false, message: "This order does not have  permission to Cancel Order " });
-
-        }
-        if (orderDetail.status == 'completed') {
-            return res.status(400).send({ status: false, message: "This order has been completed so it does not have permission to have update" });
-        }
-        if (orderDetail.status == 'cancelled') {
-            return res.status(400).send({ status: false, message: "This order has been cancelled so it does not have permission to have update" });
-        }
-        const orderupdate = await orderModel.findOneAndUpdate({ _id: orderId }, { status: status }, { new: true })
-        return res.status(200).send({ status: true, message: "Order Updated Successfully ", data: orderupdate });
 
     } catch (err) {
-        console.log(err)
         return res.status(500).send({ status: false, message: err.message });
     }
 }
 
-
-
-module.exports = { createOrder, updateOrder }
+module.exports = {
+    orderCreation,
+    updateOrder,
+};
