@@ -12,7 +12,7 @@ app.use(multer().any())
 
 app.use('/', route);
 
-mongoose.connect("mongodb+srv://users-open-to-all:hiPassword123@cluster0.uh35t.mongodb.net/Jai-Hind?retryWrites=true&w=majority", { useNewUrlParser: true })
+mongoose.connect("mongodb+srv://users-open-to-all:hiPassword123@cluster0.uh35t.mongodb.net/mmubarak38/project5?retryWrites=true&w=majority", { useNewUrlParser: true })
     .then(() => console.log('DB connected'))
     .catch(err => console.log(err))
 
