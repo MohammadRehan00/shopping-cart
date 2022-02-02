@@ -3,7 +3,7 @@ const productModel = require('../models/productModel')
 const userModel = require('../models/userModel')
 const cartModel = require('../models/cartModel')
 
-const cartCreation = async function(req, res) {
+const cartCreation = async function (req, res) {
     try {
         const userId = req.params.userId
         const requestBody = req.body;
@@ -93,7 +93,7 @@ const cartCreation = async function(req, res) {
 }
 
 //update cart.
-const updateCart = async function(req, res) {
+const updateCart = async function (req, res) {
     try {
         let userId = req.params.userId
         let requestBody = req.body;
@@ -156,7 +156,7 @@ const updateCart = async function(req, res) {
         }
 
         let findQuantity = findCart.items.find(x => x.productId.toString() === productId)
-            //console.log(findQuantity)
+        //console.log(findQuantity)
 
         if (removeProduct === 0) {
             let totalAmount = findCart.totalPrice - (findProduct.price * findQuantity.quantity) // substract the amount of product*quantity
@@ -171,7 +171,12 @@ const updateCart = async function(req, res) {
 
         // decrement quantity
         let totalAmount = findCart.totalPrice - findProduct.price
+        if (totalAmount < 0) {
+            return res.status(400).send({ status: false, msg: "no such product to be removed" })
+        }
         let itemsArr = findCart.items
+
+
 
         for (i in itemsArr) {
             if (itemsArr[i].productId.toString() == productId) {
@@ -200,7 +205,7 @@ const updateCart = async function(req, res) {
 }
 
 //fetching cart details.
-const getCart = async function(req, res) {
+const getCart = async function (req, res) {
     try {
         const userId = req.params.userId;
         let userIdFromToken = req.userId
@@ -245,7 +250,7 @@ const getCart = async function(req, res) {
 }
 
 //deleting cart- changing its items,price & totlItems to 0.
-const deleteCart = async function(req, res) {
+const deleteCart = async function (req, res) {
     try {
         const userId = req.params.userId;
         let userIdFromToken = req.userId
